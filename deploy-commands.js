@@ -64,7 +64,6 @@ function addAutocompletePlayerOption(cmd, optionName, description, required) {
 }
 
 function addWaiverPickOptions(cmd) {
-  // Require pick1; allow pick2..pick10 optional
   for (let i = 1; i <= 10; i++) {
     cmd.addStringOption((opt) =>
       opt
@@ -85,18 +84,8 @@ const transactionCmd = new SlashCommandBuilder()
   .setDescription("Log an add, drop, or swap (add and drop together = swap).");
 
 addTeamOption(transactionCmd, "team", "Team making the move");
-addAutocompletePlayerOption(
-  transactionCmd,
-  "add_player",
-  "Player to add (autocomplete)",
-  false
-);
-addAutocompletePlayerOption(
-  transactionCmd,
-  "drop_player",
-  "Player to drop (autocomplete)",
-  false
-);
+addAutocompletePlayerOption(transactionCmd, "add_player", "Player to add (autocomplete)", false);
+addAutocompletePlayerOption(transactionCmd, "drop_player", "Player to drop (autocomplete)", false);
 addNotesOption(transactionCmd);
 
 const tradeCmd = new SlashCommandBuilder()
@@ -104,31 +93,55 @@ const tradeCmd = new SlashCommandBuilder()
   .setDescription("Log a trade (writes two rows).");
 
 addTeamOption(tradeCmd, "team_a", "Team A");
-addAutocompletePlayerOption(
-  tradeCmd,
-  "player_a",
-  "Player from Team A (autocomplete)",
-  true
-);
+addAutocompletePlayerOption(tradeCmd, "player_a", "Player from Team A (autocomplete)", true);
 addTeamOption(tradeCmd, "team_b", "Team B");
-addAutocompletePlayerOption(
-  tradeCmd,
-  "player_b",
-  "Player from Team B (autocomplete)",
-  true
-);
+addAutocompletePlayerOption(tradeCmd, "player_b", "Player from Team B (autocomplete)", true);
 addNotesOption(tradeCmd);
 
 const waiversCmd = new SlashCommandBuilder()
   .setName("waivers")
-  .setDescription(
-    "Submit your ranked waiver wishlist (resubmitting replaces your previous request)."
-  );
+  .setDescription("Submit your ranked waiver wishlist (resubmitting replaces your previous request).");
 
 addTeamOption(waiversCmd, "team", "Team submitting the wishlist");
 addWaiverPickOptions(waiversCmd);
 
-// Build JSON payload for Discord API
+// ✅ Alerts command (Twilio preferences)
+const alertsCmd = new SlashCommandBuilder()
+  .setName("alerts")
+  .setDescription("Configure SMS text alerts for your team.");
+
+addTeamOption(alertsCmd, "team", "Team to receive alerts for");
+alertsCmd
+  .addStringOption((opt) =>
+    opt
+      .setName("phone")
+      .setDescription("Phone number in E.164 format (ex: +12345678900)")
+      .setRequired(true)
+  )
+  .addBooleanOption((opt) =>
+    opt
+      .setName("enabled")
+      .setDescription("Enable/disable all SMS alerts")
+      .setRequired(true)
+  )
+  .addBooleanOption((opt) =>
+    opt
+      .setName("freeagents")
+      .setDescription("Alert on new Free Agents (drops)")
+      .setRequired(true)
+  )
+  .addBooleanOption((opt) =>
+    opt
+      .setName("waiverawards")
+      .setDescription("Alert only if you win a waiver award")
+      .setRequired(true)
+  )
+  .addBooleanOption((opt) =>
+    opt
+      .setName("withdrawals")
+      .setDescription("Alert if your player withdraws from an event")
+      .setRequired(true)
+  );
 
 const waiverRunNowCmd = new SlashCommandBuilder()
   .setName("waiver_run_now")
@@ -138,6 +151,7 @@ const commands = [
   transactionCmd,
   tradeCmd,
   waiversCmd,
+  alertsCmd,
   ...(ENABLE_WAIVER_RUN ? [waiverRunNowCmd] : []),
 ].map((c) => c.toJSON());
 

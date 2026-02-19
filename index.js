@@ -66,6 +66,37 @@ const WAIVER_AWARD_DATES = [
 ];
 
 // =====================================================
+// Lineup Reminder Schedule (12:00 PM ET day-before Round 1)
+// =====================================================
+const LINEUP_REMINDER_DATES = [
+  { event: "Supreme Flight Open", date: "2026-02-26" },
+  { event: "Big Easy Open", date: "2026-03-12" },
+  { event: "Queen City Classic", date: "2026-03-26" },
+  { event: "PDGA Champions Cup", date: "2026-04-08" },
+  { event: "Jonesboro Open", date: "2026-04-16" },
+  { event: "Kansas City Wide Open", date: "2026-04-23" },
+  { event: "Waco Annual Charity Open", date: "2026-04-30" },
+  { event: "Open at Austin", date: "2026-05-06" },
+  { event: "OTB Open", date: "2026-05-20" },
+  { event: "Cascade Challenge", date: "2026-05-28" },
+  { event: "Northwest Championship", date: "2026-06-03" },
+  { event: "European Open", date: "2026-06-17" },
+  { event: "Swedish Open", date: "2026-06-25" },
+  { event: "Ale Open", date: "2026-07-02" },
+  { event: "Heinola Open", date: "2026-07-09" },
+  { event: "US Women’s Disc Golf Championship", date: "2026-07-15" },
+  { event: "Champions Landing Open", date: "2026-07-23" },
+  { event: "Ledgestone Open", date: "2026-07-29" },
+  { event: "Discmania Challenge", date: "2026-08-06" },
+  { event: "DGPT Doubles at the Preserve", date: "2026-08-13" },
+  { event: "PDGA Pro World Championships", date: "2026-08-25" },
+  { event: "Idlewild Open", date: "2026-09-03" },
+  { event: "Green Mountain Championship", date: "2026-09-16" },
+  { event: "MVP Open x OTB", date: "2026-09-23" },
+  { event: "United States Disc Golf Championship", date: "2026-10-07" },
+];
+
+// =====================================================
 // Env checks
 // =====================================================
 function requireEnv(name) {
@@ -73,11 +104,19 @@ function requireEnv(name) {
   return process.env[name];
 }
 
+function envOptional(name, fallback = "") {
+  const v = String(process.env[name] ?? "").trim();
+  return v ? v : fallback;
+}
+
 requireEnv("DISCORD_TOKEN");
 requireEnv("APPS_SCRIPT_URL");
 requireEnv("TX_SECRET");
 requireEnv("PLAYERPOOL_CSV_URL");
 requireEnv("WAIVER_CHANNEL_ID");
+
+// Optional: separate channel for lineup reminders (defaults to WAIVER_CHANNEL_ID)
+const REMINDER_CHANNEL_ID = envOptional("REMINDER_CHANNEL_ID", process.env.WAIVER_CHANNEL_ID);
 
 function envBool(name, fallback = false) {
   const v = String(process.env[name] ?? "").trim().toLowerCase();
@@ -91,8 +130,6 @@ const ENABLE_WAIVER_RUN = envBool("ENABLE_WAIVER_RUN", false);
 // Discord client
 // =====================================================
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-
-// Client-level error logging (safe now)
 client.on("error", (err) => console.error("Client error:", err));
 
 // =====================================================
@@ -100,6 +137,7 @@ client.on("error", (err) => console.error("Client error:", err));
 // =====================================================
 let players = []; // [{ name, pdga }]
 let nameToPdga = new Map(); // exact name -> pdga
+let playerPoolLoaded = false;
 
 function parseCsvLine(line) {
   const out = [];
@@ -148,6 +186,7 @@ async function refreshPlayerPool() {
 
   players = data;
   nameToPdga = map;
+  playerPoolLoaded = true;
 
   console.log(`✅ PlayerPool refreshed: ${players.length} players`);
 }
@@ -165,7 +204,7 @@ function searchPlayers(query, limit = 25) {
 }
 
 // =====================================================
-// Time / Waiver schedule helpers
+// Time / schedule helpers
 // =====================================================
 function todayET() {
   return DateTime.now().setZone("America/New_York").toFormat("yyyy-LL-dd");
@@ -184,6 +223,11 @@ function nextWaiverCycleET() {
     .sort((a, b) => a.dt.toMillis() - b.dt.toMillis());
 
   return future.length ? future[0] : null;
+}
+
+function lineupReminderEventsForToday() {
+  const t = todayET();
+  return LINEUP_REMINDER_DATES.filter((x) => x.date === t);
 }
 
 // =====================================================
@@ -262,6 +306,30 @@ function postWaiverSubmit({ cycleId, team, submittedBy, picks }) {
   });
 }
 
+function postLineupReminderRun({ cycleId, eventName, runAtIso }) {
+  return postJson_({
+    secret: process.env.TX_SECRET,
+    action: "LINEUP_REMINDER_RUN",
+    cycleId, // e.g. "2026-02-26"
+    eventName,
+    runAt: runAtIso || new Date().toISOString(),
+  });
+}
+
+// ✅ NEW: Alerts webhook call (saves to AlertSubscriptions tab)
+function postAlertsSet({ team, phoneE164, enabled, freeAgents, waiverAwards, withdrawals }) {
+  return postJson_({
+    secret: process.env.TX_SECRET,
+    action: "ALERTS_SET",
+    team,
+    phoneE164,
+    enabled: !!enabled,
+    freeAgents: !!freeAgents,
+    waiverAwards: !!waiverAwards,
+    withdrawals: !!withdrawals,
+  });
+}
+
 // =====================================================
 // Waiver awards runner
 // =====================================================
@@ -310,25 +378,73 @@ client.once(Events.ClientReady, async () => {
     "0 12 * * *",
     async () => {
       try {
-        const todaysEvents = waiverEventsForToday();
-        if (todaysEvents.length === 0) return;
+        // -----------------------------
+        // Waiver Awards
+        // -----------------------------
+        const todaysWaiverEvents = waiverEventsForToday();
+        if (todaysWaiverEvents.length) {
+          for (const ev of todaysWaiverEvents) {
+            await runWaiverAwardsForEvent(ev.event, ev.date);
+          }
+        }
 
-        for (const ev of todaysEvents) {
-          await runWaiverAwardsForEvent(ev.event, ev.date);
+        // -----------------------------
+        // Lineup Reminders
+        // -----------------------------
+        const todaysLineupReminders = lineupReminderEventsForToday();
+        if (todaysLineupReminders.length) {
+          const channel = await client.channels.fetch(REMINDER_CHANNEL_ID);
+          if (!channel || !channel.isTextBased()) {
+            throw new Error("REMINDER_CHANNEL_ID / WAIVER_CHANNEL_ID is not a text channel the bot can access.");
+          }
+
+          for (const ev of todaysLineupReminders) {
+            // Log in Apps Script first (for dedupe if/when Apps Script implements it)
+            let result = null;
+            try {
+              result = await postLineupReminderRun({
+                cycleId: ev.date,
+                eventName: ev.event,
+                runAtIso: new Date().toISOString(),
+              });
+            } catch (e) {
+              console.error("❌ LineupReminder log call failed (Apps Script):", e);
+            }
+
+            if (result && result.alreadyPosted) {
+              console.log(`ℹ️ Lineup reminder already posted for cycle ${ev.date} (${ev.event})`);
+              continue;
+            }
+
+            await channel.send(
+              `⏰ **Lineup Reminder**\n` +
+                `🏟️ Event: **${ev.event}**\n` +
+                `📅 Round 1 starts tomorrow.\n\n` +
+                `✅ Please double-check:\n` +
+                `• Your registered players\n` +
+                `• Your lineup / starters\n` +
+                `• Any last-minute swaps\n\n` +
+                `_SMS version coming soon._`
+            );
+
+            console.log(`✅ Lineup reminder posted for ${ev.event} (${ev.date})`);
+          }
         }
       } catch (err) {
-        console.error("Waiver cron job error:", err);
+        console.error("Noon ET cron job error:", err);
       }
     },
     { timezone: "America/New_York" }
   );
 
+  // Initial PlayerPool load
   try {
     await refreshPlayerPool();
   } catch (e) {
     console.error("❌ Initial PlayerPool refresh failed:", e);
   }
 
+  // Refresh PlayerPool every 6 hours
   setInterval(async () => {
     try {
       await refreshPlayerPool();
@@ -346,6 +462,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // ---- Autocomplete ----
     if (interaction.isAutocomplete()) {
       try {
+        if (!playerPoolLoaded) return interaction.respond([]);
+
         const focused = interaction.options.getFocused(true);
         const query = String(focused?.value ?? "");
 
@@ -368,41 +486,100 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (!interaction.isChatInputCommand()) return;
 
+    // =========================
+    // /alerts
+    // =========================
+    if (interaction.commandName === "alerts") {
+      const team = interaction.options.getString("team", true);
+      const phone = interaction.options.getString("phone", true);
+      const enabled = interaction.options.getBoolean("enabled", true);
+      const freeAgents = interaction.options.getBoolean("freeagents", true);
+      const waiverAwards = interaction.options.getBoolean("waiverawards", true);
+      const withdrawals = interaction.options.getBoolean("withdrawals", true);
+
+      if (!TEAM_NAMES.has(team)) {
+        return interaction.reply({ content: `❌ Invalid team: ${team}`, ephemeral: true });
+      }
+
+      // Basic E.164 validation
+      if (!/^\+\d{10,15}$/.test(phone)) {
+        return interaction.reply({
+          content: `❌ Phone must be E.164 like **+12345678900** (you sent: ${phone})`,
+          ephemeral: true,
+        });
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+
+      try {
+        const res = await postAlertsSet({
+          team,
+          phoneE164: phone,
+          enabled,
+          freeAgents,
+          waiverAwards,
+          withdrawals,
+        });
+
+        const created = !!res.created;
+
+        return interaction.editReply(
+          `✅ **SMS Alerts Saved**\n` +
+            `🏷️ Team: **${team}**\n` +
+            `📱 Phone: **${phone}**\n` +
+            `🔔 Enabled: **${enabled ? "Yes" : "No"}**\n\n` +
+            `• New Free Agents (Drops): **${freeAgents ? "Yes" : "No"}**\n` +
+            `• Waiver Awards (only if you win): **${waiverAwards ? "Yes" : "No"}**\n` +
+            `• Withdrawals: **${withdrawals ? "Yes" : "No"}**\n\n` +
+            `${created ? "_New subscription created._" : "_Subscription updated._"}`
+        );
+      } catch (err) {
+        return interaction.editReply(`❌ ${String(err?.message || err)}`);
+      }
+    }
+
     // ==============================
     // /waiver_run_now
     // ==============================
     if (interaction.commandName === "waiver_run_now") {
-     await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ ephemeral: true });
 
-     try {
-      if (!ENABLE_WAIVER_RUN) {
-       return interaction.editReply("🛑 Manual waiver runs are currently disabled.");
+      try {
+        if (!ENABLE_WAIVER_RUN) {
+          return interaction.editReply("🛑 Manual waiver runs are currently disabled.");
+        }
+
+        if (!interaction.inGuild()) {
+          return interaction.editReply("❌ This command can only be used in a server.");
+        }
+
+        const next = nextWaiverCycleET();
+        if (!next) {
+          return interaction.editReply("❌ No upcoming waiver cycle found in schedule.");
+        }
+
+        await runWaiverAwardsForEvent(next.event, next.date);
+
+        return interaction.editReply(
+          `✅ Waiver awards triggered.\n📅 Cycle: **${next.date}** (${next.event})`
+        );
+      } catch (err) {
+        console.error("waiver_run_now error:", err);
+        return interaction.editReply(`❌ ${String(err?.message || err)}`);
       }
-
-      if (!interaction.inGuild()) {
-       return interaction.editReply("❌ This command can only be used in a server.");
-      }
-
-      const next = nextWaiverCycleET();
-      if (!next) {
-       return interaction.editReply("❌ No upcoming waiver cycle found in schedule.");
-      }
-
-      await runWaiverAwardsForEvent(next.event, next.date);
-
-      return interaction.editReply(
-       `✅ Waiver awards triggered.\n📅 Cycle: **${next.date}** (${next.event})`
-      );
-     } catch (err) {
-      console.error("waiver_run_now error:", err);
-      return interaction.editReply(`❌ ${String(err?.message || err)}`);
-     }
     }
 
     // =========================
     // /waivers
     // =========================
     if (interaction.commandName === "waivers") {
+      if (!playerPoolLoaded) {
+        return interaction.reply({
+          content: "❌ PlayerPool is still loading. Try again in ~10 seconds.",
+          ephemeral: true,
+        });
+      }
+
       const team = interaction.options.getString("team", true);
 
       if (!TEAM_NAMES.has(team)) {
@@ -417,7 +594,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
 
-      // ACK immediately
       await interaction.deferReply({ ephemeral: true });
 
       const cycleId = next.date;
@@ -475,6 +651,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // /transaction
     // =========================
     if (interaction.commandName === "transaction") {
+      if (!playerPoolLoaded) {
+        return interaction.reply({
+          content: "❌ PlayerPool is still loading. Try again in ~10 seconds.",
+          ephemeral: true,
+        });
+      }
+
       const team = interaction.options.getString("team", true);
       const addName = interaction.options.getString("add_player", false);
       const dropName = interaction.options.getString("drop_player", false);
@@ -559,6 +742,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // /trade
     // =========================
     if (interaction.commandName === "trade") {
+      if (!playerPoolLoaded) {
+        return interaction.reply({
+          content: "❌ PlayerPool is still loading. Try again in ~10 seconds.",
+          ephemeral: true,
+        });
+      }
+
       const teamA = interaction.options.getString("team_a", true);
       const teamB = interaction.options.getString("team_b", true);
       const playerA = interaction.options.getString("player_a", true);
@@ -616,7 +806,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } catch (err) {
     console.error("❌ Error:", err);
 
-    // Always try to respond somehow, but don’t crash if interaction expired
     const msg = `❌ ${String(err?.message || err)}`;
     try {
       if (interaction.deferred || interaction.replied) {
