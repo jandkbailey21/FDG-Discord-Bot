@@ -316,17 +316,19 @@ function postLineupReminderRun({ cycleId, eventName, runAtIso }) {
   });
 }
 
-// ✅ NEW: Alerts webhook call (saves to AlertSubscriptions tab)
-function postAlertsSet({ team, phoneE164, enabled, freeAgents, waiverAwards, withdrawals }) {
+// ✅ Alerts webhook call (saves to AlertSubscriptions tab)
+// NOTE: We no longer expose "enabled" in /alerts. We always set enabled=true on save.
+function postAlertsSet({ team, phoneE164, freeAgents, waiverAwards, withdrawals, lineupReminders }) {
   return postJson_({
     secret: process.env.TX_SECRET,
     action: "ALERTS_SET",
     team,
     phoneE164,
-    enabled: !!enabled,
+    enabled: true, // keep backend compatibility while removing the user-facing toggle
     freeAgents: !!freeAgents,
     waiverAwards: !!waiverAwards,
     withdrawals: !!withdrawals,
+    lineupReminders: !!lineupReminders,
   });
 }
 
@@ -389,17 +391,19 @@ client.once(Events.ClientReady, async () => {
         }
 
         // -----------------------------
-        // Lineup Reminders
+        // Lineup Reminders (Discord post)
         // -----------------------------
         const todaysLineupReminders = lineupReminderEventsForToday();
         if (todaysLineupReminders.length) {
           const channel = await client.channels.fetch(REMINDER_CHANNEL_ID);
           if (!channel || !channel.isTextBased()) {
-            throw new Error("REMINDER_CHANNEL_ID / WAIVER_CHANNEL_ID is not a text channel the bot can access.");
+            throw new Error(
+              "REMINDER_CHANNEL_ID / WAIVER_CHANNEL_ID is not a text channel the bot can access."
+            );
           }
 
           for (const ev of todaysLineupReminders) {
-            // Log in Apps Script first (for dedupe if/when Apps Script implements it)
+            // Log in Apps Script first (dedupe lives there)
             let result = null;
             try {
               result = await postLineupReminderRun({
@@ -424,7 +428,7 @@ client.once(Events.ClientReady, async () => {
                 `• Your registered players\n` +
                 `• Your lineup / starters\n` +
                 `• Any last-minute swaps\n\n` +
-                `_SMS version coming soon._`
+                `_SMS reminders are controlled via /alerts → lineupreminders (when backend is wired)._`
             );
 
             console.log(`✅ Lineup reminder posted for ${ev.event} (${ev.date})`);
@@ -492,10 +496,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.commandName === "alerts") {
       const team = interaction.options.getString("team", true);
       const phone = interaction.options.getString("phone", true);
-      const enabled = interaction.options.getBoolean("enabled", true);
+
+      // removed: enabled
       const freeAgents = interaction.options.getBoolean("freeagents", true);
       const waiverAwards = interaction.options.getBoolean("waiverawards", true);
       const withdrawals = interaction.options.getBoolean("withdrawals", true);
+      const lineupReminders = interaction.options.getBoolean("lineupreminders", true);
 
       if (!TEAM_NAMES.has(team)) {
         return interaction.reply({ content: `❌ Invalid team: ${team}`, ephemeral: true });
@@ -515,10 +521,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const res = await postAlertsSet({
           team,
           phoneE164: phone,
-          enabled,
           freeAgents,
           waiverAwards,
           withdrawals,
+          lineupReminders,
         });
 
         const created = !!res.created;
@@ -526,11 +532,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return interaction.editReply(
           `✅ **SMS Alerts Saved**\n` +
             `🏷️ Team: **${team}**\n` +
-            `📱 Phone: **${phone}**\n` +
-            `🔔 Enabled: **${enabled ? "Yes" : "No"}**\n\n` +
-            `• New Free Agents (Drops): **${freeAgents ? "Yes" : "No"}**\n` +
+            `📱 Phone: **${phone}**\n\n` +
+            `• Free Agent Drops: **${freeAgents ? "Yes" : "No"}**\n` +
             `• Waiver Awards (only if you win): **${waiverAwards ? "Yes" : "No"}**\n` +
-            `• Withdrawals: **${withdrawals ? "Yes" : "No"}**\n\n` +
+            `• Withdrawals: **${withdrawals ? "Yes" : "No"}**\n` +
+            `• Lineup Reminders (day before): **${lineupReminders ? "Yes" : "No"}**\n\n` +
             `${created ? "_New subscription created._" : "_Subscription updated._"}`
         );
       } catch (err) {

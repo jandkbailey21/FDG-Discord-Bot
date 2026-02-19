@@ -84,8 +84,18 @@ const transactionCmd = new SlashCommandBuilder()
   .setDescription("Log an add, drop, or swap (add and drop together = swap).");
 
 addTeamOption(transactionCmd, "team", "Team making the move");
-addAutocompletePlayerOption(transactionCmd, "add_player", "Player to add (autocomplete)", false);
-addAutocompletePlayerOption(transactionCmd, "drop_player", "Player to drop (autocomplete)", false);
+addAutocompletePlayerOption(
+  transactionCmd,
+  "add_player",
+  "Player to add (autocomplete)",
+  false
+);
+addAutocompletePlayerOption(
+  transactionCmd,
+  "drop_player",
+  "Player to drop (autocomplete)",
+  false
+);
 addNotesOption(transactionCmd);
 
 const tradeCmd = new SlashCommandBuilder()
@@ -93,14 +103,26 @@ const tradeCmd = new SlashCommandBuilder()
   .setDescription("Log a trade (writes two rows).");
 
 addTeamOption(tradeCmd, "team_a", "Team A");
-addAutocompletePlayerOption(tradeCmd, "player_a", "Player from Team A (autocomplete)", true);
+addAutocompletePlayerOption(
+  tradeCmd,
+  "player_a",
+  "Player from Team A (autocomplete)",
+  true
+);
 addTeamOption(tradeCmd, "team_b", "Team B");
-addAutocompletePlayerOption(tradeCmd, "player_b", "Player from Team B (autocomplete)", true);
+addAutocompletePlayerOption(
+  tradeCmd,
+  "player_b",
+  "Player from Team B (autocomplete)",
+  true
+);
 addNotesOption(tradeCmd);
 
 const waiversCmd = new SlashCommandBuilder()
   .setName("waivers")
-  .setDescription("Submit your ranked waiver wishlist (resubmitting replaces your previous request).");
+  .setDescription(
+    "Submit your ranked waiver wishlist (resubmitting replaces your previous request)."
+  );
 
 addTeamOption(waiversCmd, "team", "Team submitting the wishlist");
 addWaiverPickOptions(waiversCmd);
@@ -120,14 +142,8 @@ alertsCmd
   )
   .addBooleanOption((opt) =>
     opt
-      .setName("enabled")
-      .setDescription("Enable/disable all SMS alerts")
-      .setRequired(true)
-  )
-  .addBooleanOption((opt) =>
-    opt
       .setName("freeagents")
-      .setDescription("Alert on new Free Agents (drops)")
+      .setDescription("Alert when a team drops a player to Free Agents")
       .setRequired(true)
   )
   .addBooleanOption((opt) =>
@@ -139,7 +155,13 @@ alertsCmd
   .addBooleanOption((opt) =>
     opt
       .setName("withdrawals")
-      .setDescription("Alert if your player withdraws from an event")
+      .setDescription("Alert if a player on your roster withdraws from an event")
+      .setRequired(true)
+  )
+  .addBooleanOption((opt) =>
+    opt
+      .setName("lineupreminders")
+      .setDescription("Reminder the day before an event starts to set your lineup")
       .setRequired(true)
   );
 
