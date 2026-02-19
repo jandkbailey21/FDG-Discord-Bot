@@ -13,6 +13,14 @@ const DISCORD_TOKEN = requireEnv("DISCORD_TOKEN");
 const GUILD_ID = requireEnv("GUILD_ID");
 const CLIENT_ID = requireEnv("CLIENT_ID");
 
+function envBool(name, fallback = false) {
+  const v = String(process.env[name] ?? "").trim().toLowerCase();
+  if (!v) return fallback;
+  return v === "true" || v === "1" || v === "yes" || v === "on";
+}
+
+const ENABLE_WAIVER_RUN = envBool("ENABLE_WAIVER_RUN", false);
+
 // =======================
 // Constants / Helpers
 // =======================
@@ -130,9 +138,8 @@ const commands = [
   transactionCmd,
   tradeCmd,
   waiversCmd,
-  waiverRunNowCmd   // 👈 ADD THIS
+  ...(ENABLE_WAIVER_RUN ? [waiverRunNowCmd] : []),
 ].map((c) => c.toJSON());
-
 
 // =======================
 // Deploy

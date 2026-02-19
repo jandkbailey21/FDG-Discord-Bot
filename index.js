@@ -79,6 +79,14 @@ requireEnv("TX_SECRET");
 requireEnv("PLAYERPOOL_CSV_URL");
 requireEnv("WAIVER_CHANNEL_ID");
 
+function envBool(name, fallback = false) {
+  const v = String(process.env[name] ?? "").trim().toLowerCase();
+  if (!v) return fallback;
+  return v === "true" || v === "1" || v === "yes" || v === "on";
+}
+
+const ENABLE_WAIVER_RUN = envBool("ENABLE_WAIVER_RUN", false);
+
 // =====================================================
 // Discord client
 // =====================================================
@@ -364,27 +372,31 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // /waiver_run_now
     // ==============================
     if (interaction.commandName === "waiver_run_now") {
-      await interaction.deferReply({ ephemeral: true });
+     await interaction.deferReply({ ephemeral: true });
 
-      try {
-        if (!interaction.inGuild()) {
-          return interaction.editReply("❌ This command can only be used in a server.");
-        }
-
-        const next = nextWaiverCycleET();
-        if (!next) {
-          return interaction.editReply("❌ No upcoming waiver cycle found in schedule.");
-        }
-
-        await runWaiverAwardsForEvent(next.event, next.date);
-
-        return interaction.editReply(
-          `✅ Waiver awards triggered.\n📅 Cycle: **${next.date}** (${next.event})`
-        );
-      } catch (err) {
-        console.error("waiver_run_now error:", err);
-        return interaction.editReply(`❌ ${String(err?.message || err)}`);
+     try {
+      if (!ENABLE_WAIVER_RUN) {
+       return interaction.editReply("🛑 Manual waiver runs are currently disabled.");
       }
+
+      if (!interaction.inGuild()) {
+       return interaction.editReply("❌ This command can only be used in a server.");
+      }
+
+      const next = nextWaiverCycleET();
+      if (!next) {
+       return interaction.editReply("❌ No upcoming waiver cycle found in schedule.");
+      }
+
+      await runWaiverAwardsForEvent(next.event, next.date);
+
+      return interaction.editReply(
+       `✅ Waiver awards triggered.\n📅 Cycle: **${next.date}** (${next.event})`
+      );
+     } catch (err) {
+      console.error("waiver_run_now error:", err);
+      return interaction.editReply(`❌ ${String(err?.message || err)}`);
+     }
     }
 
     // =========================
