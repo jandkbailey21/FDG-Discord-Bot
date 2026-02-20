@@ -11,8 +11,12 @@ const { DateTime } = require("luxon");
 // =====================================================
 // Global crash guards (do NOT reference `client` here)
 // =====================================================
-process.on("unhandledRejection", (err) => console.error("UnhandledRejection:", err));
-process.on("uncaughtException", (err) => console.error("UncaughtException:", err));
+process.on("unhandledRejection", (err) =>
+  console.error("UnhandledRejection:", err)
+);
+process.on("uncaughtException", (err) =>
+  console.error("UncaughtException:", err)
+);
 
 // =====================================================
 // Config / Constants
@@ -116,7 +120,10 @@ requireEnv("PLAYERPOOL_CSV_URL");
 requireEnv("WAIVER_CHANNEL_ID");
 
 // Optional: separate channel for lineup reminders (defaults to WAIVER_CHANNEL_ID)
-const REMINDER_CHANNEL_ID = envOptional("REMINDER_CHANNEL_ID", process.env.WAIVER_CHANNEL_ID);
+const REMINDER_CHANNEL_ID = envOptional(
+  "REMINDER_CHANNEL_ID",
+  process.env.WAIVER_CHANNEL_ID
+);
 
 function envBool(name, fallback = false) {
   const v = String(process.env[name] ?? "").trim().toLowerCase();
@@ -160,6 +167,7 @@ function parseCsvLine(line) {
       cur += ch;
     }
   }
+
   out.push(cur);
   return out.map((s) => s.trim());
 }
@@ -207,7 +215,9 @@ function searchPlayers(query, limit = 25) {
 // Time / schedule helpers
 // =====================================================
 function todayET() {
-  return DateTime.now().setZone("America/New_York").toFormat("yyyy-LL-dd");
+  return DateTime.now()
+    .setZone("America/New_York")
+    .toFormat("yyyy-LL-dd");
 }
 
 function waiverEventsForToday() {
@@ -217,8 +227,10 @@ function waiverEventsForToday() {
 
 function nextWaiverCycleET() {
   const now = DateTime.now().setZone("America/New_York").startOf("day");
-  const future = WAIVER_AWARD_DATES
-    .map((x) => ({ ...x, dt: DateTime.fromISO(x.date, { zone: "America/New_York" }) }))
+  const future = WAIVER_AWARD_DATES.map((x) => ({
+    ...x,
+    dt: DateTime.fromISO(x.date, { zone: "America/New_York" }),
+  }))
     .filter((x) => x.dt >= now)
     .sort((a, b) => a.dt.toMillis() - b.dt.toMillis());
 
@@ -228,6 +240,23 @@ function nextWaiverCycleET() {
 function lineupReminderEventsForToday() {
   const t = todayET();
   return LINEUP_REMINDER_DATES.filter((x) => x.date === t);
+}
+
+function normalizePhoneToE164(input) {
+  const raw = String(input || "").trim();
+
+  // Remove common formatting characters and leading apostrophe if someone copy/pastes from Sheets
+  const cleaned = raw.replace(/^'+/, "").replace(/[^\d+]/g, "");
+
+  // If it already starts with +, keep it (but ensure only one +)
+  if (cleaned.startsWith("+")) {
+    const digits = cleaned.replace(/[^\d]/g, "");
+    return `+${digits}`;
+  }
+
+  // Otherwise treat as digits only (US default). If you want international later, we can expand this.
+  const digitsOnly = cleaned.replace(/[^\d]/g, "");
+  return digitsOnly ? `+${digitsOnly}` : "";
 }
 
 // =====================================================
@@ -255,7 +284,16 @@ async function postJson_(payload) {
   return json;
 }
 
-function postTransactionRow({ type, team, pdga, name, fromTeam, toTeam, notes, mode }) {
+function postTransactionRow({
+  type,
+  team,
+  pdga,
+  name,
+  fromTeam,
+  toTeam,
+  notes,
+  mode,
+}) {
   return postJson_({
     secret: process.env.TX_SECRET,
     date: new Date().toISOString(),
@@ -270,7 +308,15 @@ function postTransactionRow({ type, team, pdga, name, fromTeam, toTeam, notes, m
   });
 }
 
-function postSwap({ team, dropPdga, dropName, addPdga, addName, notes, mode }) {
+function postSwap({
+  team,
+  dropPdga,
+  dropName,
+  addPdga,
+  addName,
+  notes,
+  mode,
+}) {
   return postJson_({
     secret: process.env.TX_SECRET,
     date: new Date().toISOString(),
@@ -318,7 +364,14 @@ function postLineupReminderRun({ cycleId, eventName, runAtIso }) {
 
 // ✅ Alerts webhook call (saves to AlertSubscriptions tab)
 // NOTE: We no longer expose "enabled" in /alerts. We always set enabled=true on save.
-function postAlertsSet({ team, phoneE164, freeAgents, waiverAwards, withdrawals, lineupReminders }) {
+function postAlertsSet({
+  team,
+  phoneE164,
+  freeAgents,
+  waiverAwards,
+  withdrawals,
+  lineupReminders,
+}) {
   return postJson_({
     secret: process.env.TX_SECRET,
     action: "ALERTS_SET",
@@ -353,7 +406,9 @@ async function runWaiverAwardsForEvent(eventName, dateString) {
 
   const channel = await client.channels.fetch(process.env.WAIVER_CHANNEL_ID);
   if (!channel || !channel.isTextBased()) {
-    throw new Error("WAIVER_CHANNEL_ID is not a text channel the bot can access.");
+    throw new Error(
+      "WAIVER_CHANNEL_ID is not a text channel the bot can access."
+    );
   }
 
   const header =
@@ -361,11 +416,15 @@ async function runWaiverAwardsForEvent(eventName, dateString) {
     `🏟️ Event: **${eventName}**\n` +
     `📅 Date: **${dateString}**\n\n`;
 
-  const body = Array.isArray(result.lines) ? result.lines.join("\n") : "_No awards returned._";
+  const body = Array.isArray(result.lines)
+    ? result.lines.join("\n")
+    : "_No awards returned._";
   const footer = result.footer ? `\n\n_${result.footer}_` : "";
 
   await channel.send(header + body + footer);
-  console.log(`✅ Waiver awards posted to channel ${process.env.WAIVER_CHANNEL_ID}`);
+  console.log(
+    `✅ Waiver awards posted to channel ${process.env.WAIVER_CHANNEL_ID}`
+  );
 
   return { ok: true, alreadyPosted: false };
 }
@@ -416,7 +475,9 @@ client.once(Events.ClientReady, async () => {
             }
 
             if (result && result.alreadyPosted) {
-              console.log(`ℹ️ Lineup reminder already posted for cycle ${ev.date} (${ev.event})`);
+              console.log(
+                `ℹ️ Lineup reminder already posted for cycle ${ev.date} (${ev.event})`
+              );
               continue;
             }
 
@@ -495,25 +556,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // =========================
     if (interaction.commandName === "alerts") {
       const team = interaction.options.getString("team", true);
-      const phone = interaction.options.getString("phone", true);
-
-      // removed: enabled
-      const freeAgents = interaction.options.getBoolean("freeagents", true);
-      const waiverAwards = interaction.options.getBoolean("waiverawards", true);
-      const withdrawals = interaction.options.getBoolean("withdrawals", true);
-      const lineupReminders = interaction.options.getBoolean("lineupreminders", true);
 
       if (!TEAM_NAMES.has(team)) {
-        return interaction.reply({ content: `❌ Invalid team: ${team}`, ephemeral: true });
-      }
-
-      // Basic E.164 validation
-      if (!/^\+\d{10,15}$/.test(phone)) {
         return interaction.reply({
-          content: `❌ Phone must be E.164 like **+12345678900** (you sent: ${phone})`,
+          content: `❌ Invalid team: ${team}`,
           ephemeral: true,
         });
       }
+
+      const phoneRaw = interaction.options.getString("phone", true);
+      const phone = normalizePhoneToE164(phoneRaw);
+
+      if (!/^\+\d{10,15}$/.test(phone)) {
+        return interaction.reply({
+          content: `❌ Phone must be E.164 like **+12345678900** (you sent: ${phoneRaw})`,
+          ephemeral: true,
+        });
+      }
+
+      const freeAgents = interaction.options.getBoolean("freeagents") ?? false;
+      const waiverAwards = interaction.options.getBoolean("waiverawards") ?? false;
+      const withdrawals = interaction.options.getBoolean("withdrawals") ?? false;
+      const lineupReminders =
+        interaction.options.getBoolean("lineupreminders") ?? false;
 
       await interaction.deferReply({ ephemeral: true });
 
@@ -536,7 +601,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
             `• Free Agent Drops: **${freeAgents ? "Yes" : "No"}**\n` +
             `• Waiver Awards (only if you win): **${waiverAwards ? "Yes" : "No"}**\n` +
             `• Withdrawals: **${withdrawals ? "Yes" : "No"}**\n` +
-            `• Lineup Reminders (day before): **${lineupReminders ? "Yes" : "No"}**\n\n` +
+            `• Lineup Reminders (day before): **${
+              lineupReminders ? "Yes" : "No"
+            }**\n\n` +
             `${created ? "_New subscription created._" : "_Subscription updated._"}`
         );
       } catch (err) {
@@ -552,7 +619,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       try {
         if (!ENABLE_WAIVER_RUN) {
-          return interaction.editReply("🛑 Manual waiver runs are currently disabled.");
+          return interaction.editReply(
+            "🛑 Manual waiver runs are currently disabled."
+          );
         }
 
         if (!interaction.inGuild()) {
@@ -561,7 +630,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const next = nextWaiverCycleET();
         if (!next) {
-          return interaction.editReply("❌ No upcoming waiver cycle found in schedule.");
+          return interaction.editReply(
+            "❌ No upcoming waiver cycle found in schedule."
+          );
         }
 
         await runWaiverAwardsForEvent(next.event, next.date);
@@ -589,7 +660,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const team = interaction.options.getString("team", true);
 
       if (!TEAM_NAMES.has(team)) {
-        return interaction.reply({ content: `❌ Invalid team: ${team}`, ephemeral: true });
+        return interaction.reply({
+          content: `❌ Invalid team: ${team}`,
+          ephemeral: true,
+        });
       }
 
       const next = nextWaiverCycleET();
@@ -624,7 +698,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const seen = new Set();
       for (const p of picks) {
         if (seen.has(p.pdga)) {
-          return interaction.editReply(`❌ Duplicate player selected: ${p.name} (${p.pdga})`);
+          return interaction.editReply(
+            `❌ Duplicate player selected: ${p.name} (${p.pdga})`
+          );
         }
         seen.add(p.pdga);
       }
@@ -642,7 +718,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
 
       const returned = Array.isArray(result?.picks) ? result.picks : picks;
-      const lines = returned.map((p) => `${p.rank}) ${p.name} (${p.pdga})`).join("\n");
+      const lines = returned
+        .map((p) => `${p.rank}) ${p.name} (${p.pdga})`)
+        .join("\n");
 
       return interaction.editReply(
         `✅ **Waiver request submitted**\n` +
@@ -670,7 +748,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const notes = interaction.options.getString("notes", false) || "";
 
       if (!TEAM_NAMES.has(team)) {
-        return interaction.reply({ content: `❌ Invalid team: ${team}`, ephemeral: true });
+        return interaction.reply({
+          content: `❌ Invalid team: ${team}`,
+          ephemeral: true,
+        });
       }
       if (!addName && !dropName) {
         return interaction.reply({
@@ -685,8 +766,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const dropPdga = nameToPdga.get(dropName);
         const addPdga = nameToPdga.get(addName);
 
-        if (!dropPdga) throw new Error(`Could not resolve PDGA for drop_player: ${dropName}`);
-        if (!addPdga) throw new Error(`Could not resolve PDGA for add_player: ${addName}`);
+        if (!dropPdga)
+          throw new Error(`Could not resolve PDGA for drop_player: ${dropName}`);
+        if (!addPdga)
+          throw new Error(`Could not resolve PDGA for add_player: ${addName}`);
 
         await postSwap({ team, dropPdga, dropName, addPdga, addName, notes });
 
@@ -706,7 +789,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       if (dropName) {
         const pdga = nameToPdga.get(dropName);
-        if (!pdga) throw new Error(`Could not resolve PDGA for drop_player: ${dropName}`);
+        if (!pdga)
+          throw new Error(`Could not resolve PDGA for drop_player: ${dropName}`);
 
         await postTransactionRow({
           type: "DROP",
@@ -717,12 +801,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
           toTeam: FREE,
           notes,
         });
+
         receiptLines.push(`⬇️ **DROP**: ${dropName} → **${FREE}**`);
       }
 
       if (addName) {
         const pdga = nameToPdga.get(addName);
-        if (!pdga) throw new Error(`Could not resolve PDGA for add_player: ${addName}`);
+        if (!pdga)
+          throw new Error(`Could not resolve PDGA for add_player: ${addName}`);
 
         await postTransactionRow({
           type: "ADD",
@@ -733,6 +819,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           toTeam: team,
           notes,
         });
+
         receiptLines.push(`⬆️ **ADD**: ${addName} ← **${FREE}**`);
       }
 
@@ -740,7 +827,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const who = `\n👤 Submitted by: <@${interaction.user.id}>`;
 
       return interaction.editReply(
-        `✅ **${team} Transaction Logged**\n` + receiptLines.join("\n") + noteLine + who
+        `✅ **${team} Transaction Logged**\n` +
+          receiptLines.join("\n") +
+          noteLine +
+          who
       );
     }
 
@@ -762,7 +852,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const notes = interaction.options.getString("notes", false) || "";
 
       if (!TEAM_NAMES.has(teamA) || !TEAM_NAMES.has(teamB)) {
-        return interaction.reply({ content: "❌ Invalid team code(s).", ephemeral: true });
+        return interaction.reply({
+          content: "❌ Invalid team code(s).",
+          ephemeral: true,
+        });
       }
       if (teamA === teamB) {
         return interaction.reply({
