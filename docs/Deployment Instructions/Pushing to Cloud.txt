@@ -1,0 +1,143 @@
+===========================================================
+FDG DISCORD BOT DEPLOYMENT RUNBOOK
+(Local PC → GitHub → Oracle Cloud VM)
+===========================================================
+
+
+===========================================================
+SECTION 1 — PUSH LOCAL CHANGES TO GITHUB
+===========================================================
+
+# 1) Open PowerShell in your local bot folder
+cd C:\path\to\FDG-Discord-Bot
+
+
+# 2) Verify branch and changes
+git status
+git branch
+
+
+# 3) Pull latest from GitHub (avoid conflicts)
+git pull
+
+
+# 4) Stage changes
+git add .
+
+
+# 5) Commit changes
+git commit -m "Describe your change here"
+
+
+# 6) Push to GitHub
+git push
+
+
+# If new branch:
+git push -u origin your-branch-name
+
+
+# DONE: GitHub now has the updated code
+
+
+
+===========================================================
+SECTION 2 — DEPLOY UPDATES TO ORACLE CLOUD VM
+===========================================================
+
+# 1) SSH into Oracle
+ssh -i C:\Users\jandk\.ssh\oracle.key ubuntu@150.136.201.153
+
+
+# 2) Enter bot directory
+cd ~/FDG-Discord-Bot
+
+
+# 3) Pull latest code from GitHub
+git pull
+
+
+# 4) Install dependencies (safe to run every time)
+npm ci
+
+
+# 5) Deploy slash commands (ONLY if commands changed)
+node deploy-commands.js
+
+
+# 6) Restart the bot system service
+sudo systemctl restart fdg-bot
+
+
+# 7) Confirm bot is running
+sudo systemctl status fdg-bot
+
+
+# Optional: View live logs
+journalctl -u fdg-bot -f
+
+
+# DONE: Cloud bot is now running updated code
+
+
+
+===========================================================
+SECTION 3 — QUICK DEPLOY (NO COMMAND CHANGES)
+===========================================================
+
+ssh -i C:\Users\jandk\.ssh\oracle.key ubuntu@150.136.201.153
+cd ~/FDG-Discord-Bot
+git pull
+npm ci
+sudo systemctl restart fdg-bot
+
+
+
+===========================================================
+SECTION 4 — QUICK DEPLOY (NEW / UPDATED SLASH COMMANDS)
+===========================================================
+
+ssh -i C:\Users\jandk\.ssh\oracle.key ubuntu@150.136.201.153
+cd ~/FDG-Discord-Bot
+git pull
+npm ci
+node deploy-commands.js
+sudo systemctl restart fdg-bot
+
+
+
+===========================================================
+SECTION 5 — DO NOT DO THESE THINGS
+===========================================================
+
+# ❌ Do NOT commit .env to GitHub
+# ❌ Do NOT leave "node index.js" running manually on server
+# ❌ Do NOT forget "node deploy-commands.js" when adding commands
+# ❌ Do NOT skip restarting the systemd service after updates
+
+
+
+===========================================================
+SECTION 6 — TROUBLESHOOTING
+===========================================================
+
+# Check bot service
+sudo systemctl status fdg-bot
+
+# Restart service
+sudo systemctl restart fdg-bot
+
+# View last 50 logs
+journalctl -u fdg-bot -n 50 --no-pager
+
+# View live logs
+journalctl -u fdg-bot -f
+
+# Reboot server (bot auto-starts)
+sudo reboot
+
+
+
+===========================================================
+END OF DOCUMENT
+===========================================================

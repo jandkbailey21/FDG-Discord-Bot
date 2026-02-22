@@ -1,0 +1,270 @@
+FDG Stats Enhancement — Requirements & Solution Design (RSD v1)
+1) Goal
+
+Add a Stats system to FDG that:
+
+Pulls PDGA tournament division stats (MPO/FPO) per event.
+
+Stores all available stat categories without breaking when some events don’t track certain stats.
+
+Produces season-to-date player stats that:
+
+aggregate only across events where the stat exists for that player/event
+
+use correct aggregation rules (weighted rates vs sums, etc.)
+
+Works fully in Google Sheets + Apps Script for the 2026 season.
+
+Uses a data model that can migrate cleanly to a mobile app next winter.
+
+2) Non-Goals (for this phase)
+
+No live “every few minutes” stat snapshots during rounds.
+
+No per-round stat history unless explicitly added later.
+
+No rewriting of core FDG flows (DraftBoard/Transactions/Rosters) unless needed for joining players.
+
+3) Data Sources
+
+Primary: PDGA tournament division stats endpoint pattern:
+
+https://www.pdga.com/api/v1/feat/stats/tournament-division-stats/{TournID}/{Division}/
+
+Where:
+
+{TournID} comes from Events config (already tracked per EventCode).
+
+{Division} is MPO or FPO.
+
+Assumption: response contains a list of players with resultId, name fields, dnf, and a stats[] array of {statId, statCount, statOpportunityCount, statValue, rank, isTie}.
+
+4) Data Model (Sheets = DB)
+4.1 Tabs to Add
+A) StatDef (dimension / metadata)
+
+Purpose: define stat meanings and how to aggregate for season totals.
+
+Columns:
+
+StatId (number)
+
+StatCode (short stable label, e.g., BIRDIE_PCT)
+
+StatName (display label)
+
+ValueType (RATE, COUNT, DIST_AVG, DIST_SUM, SG_SUM, RAW)
+
+SeasonAgg (WEIGHTED_RATE, SUM, WEIGHTED_AVG, AVG)
+
+Format (e.g., %, 0.00, 0, ft)
+
+HigherIsBetter (TRUE/FALSE)
+
+Enabled (TRUE/FALSE)
+
+Notes:
+
+StatId mapping is global and reused across events.
+
+If PDGA introduces new statIds, append new rows to StatDef.
+
+B) StatsFact (fact table, normalized)
+
+Purpose: append-only (or upsert) storage of event-level stats.
+
+One row per: Season + EventCode + Division + PDGA + StatId
+
+Columns:
+
+Season
+
+EventCode
+
+TournID
+
+Division
+
+PDGA (preferred stable player key; if unknown, store blank + fallback to ResultId)
+
+ResultId (PDGA event-result identifier)
+
+PlayerName (optional convenience; can be derived later)
+
+DNF (TRUE/FALSE)
+
+StatId
+
+Count (nullable)
+
+Opps (nullable)
+
+Value (nullable)
+
+Rank (nullable)
+
+IsTie (nullable)
+
+PulledAt (timestamp)
+
+Missing stat rule: If a statId is not present for a player/event, do not write a row (preferred). This ensures season averages ignore missing stats automatically.
+
+C) StatsSeason (derived output table)
+
+Purpose: easy-to-read season view for FDG, rebuilt by script.
+
+One row per player per division.
+
+Columns:
+
+Season
+
+Division
+
+PDGA
+
+PlayerName
+
+EventsPlayed (unique events where player has any StatsFact rows)
+
+For each enabled StatDef row, a season aggregate column (by StatCode or StatName)
+
+Optional helper columns: EventsWith_{StatCode} (count of events where that stat exists)
+
+5) Aggregation Rules (must be correct)
+5.1 Weighted Rates (preferred when Count+Opps exist)
+
+For stats with SeasonAgg = WEIGHTED_RATE:
+
+SeasonCount = SUM(Count) across rows
+
+SeasonOpps = SUM(Opps) across rows
+
+SeasonValue = SeasonCount / SeasonOpps
+
+Only include rows where Opps > 0
+
+Events that did not provide the stat have no rows → excluded automatically.
+
+Examples: Birdie%, Par%, Bogey%, Double+, Fairway%, Scramble%, Parked%, C1Reg%, C2Reg%, C1 Putting%, C1X Putting%, C2 Putting%.
+
+5.2 SUM
+
+For stats with SeasonAgg = SUM:
+
+SeasonValue = SUM(Value) (or SUM(Count) depending on StatDef config)
+
+Examples: OB count, strokes gained totals, total distance.
+
+5.3 Weighted Average
+
+For stats that are “averages” but should be weighted:
+
+SeasonValue = SUM(numerator) / SUM(denominator)
+
+Only used if both components exist or can be derived.
+
+Example: Avg putt distance if PDGA provides both total distance and putt counts in some form.
+
+5.4 AVG (fallback)
+
+If PDGA provides only statValue with no meaningful opportunities, season uses:
+
+AVG(Value) across events where the stat exists
+
+Optional: weight by holes played if available.
+
+6) Key Joining / Identity Rules
+
+Primary player key should be PDGA number wherever possible.
+
+If PDGA number is not provided in the stats payload:
+
+store ResultId as fallback in StatsFact
+
+optionally map ResultId→PDGA via another PDGA endpoint or existing PlayerPool mapping
+
+Avoid using names as identifiers.
+
+7) App Script Functions (deliverables)
+7.1 pullTournamentDivisionStatsToFact_(eventCode, division)
+
+Looks up TournID by eventCode from Events table.
+
+Fetches PDGA stats endpoint.
+
+Writes/upserts rows to StatsFact using key:
+
+Season|EventCode|Division|PDGA(or ResultId)|StatId
+
+Skips missing stats (no rows written).
+
+Writes PulledAt timestamp.
+
+7.2 rebuildStatsSeason_()
+
+Reads StatsFact and StatDef (Enabled=TRUE).
+
+Aggregates per player per division using StatDef SeasonAgg rules.
+
+Writes StatsSeason as a clean table (no heavy formulas).
+
+Calculates:
+
+EventsPlayed
+
+EventsWith_{StatCode} (optional)
+
+7.3 updateStatsForEvent_(eventCode)
+
+Pull MPO + FPO
+
+Rebuild StatsSeason
+
+7.4 Scheduling
+
+Optional: run update on a schedule after event ends (or manual run button).
+
+No high-frequency live polling in phase 1.
+
+8) Performance / Longevity Requirements
+
+StatsFact should remain formula-free (raw values only).
+
+Use Apps Script to generate StatsSeason to avoid slow QUERY/PIVOT on 100k+ rows.
+
+Schema must be stable if new statIds appear.
+
+System must not break if an event returns fewer stats.
+
+9) Acceptance Criteria
+
+After running updateStatsForEvent_(SFO):
+
+StatsFact contains rows for all players in SFO with all available statIds.
+
+StatsSeason lists those players; season values reflect only SFO.
+
+After running updateStatsForEvent_(BEO):
+
+StatsFact contains additional rows for BEO.
+
+StatsSeason now includes:
+
+players who played SFO only
+
+players who played BEO only
+
+players who played both
+
+For a player with 2 events, rate stats are weighted by opportunities across both events.
+
+Averages do not include events that did not provide that stat.
+
+10) Open Items / Future Enhancements
+
+Round-level stats table (StatsFactRound) if needed later.
+
+Live snapshot tracking (StatsFactSnapshot) if needed later.
+
+Migration path: export StatsFact to a real DB (Postgres/Firebase/etc.) for mobile app.

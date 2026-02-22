@@ -1,0 +1,201 @@
+📄 FDG Cloud Migration – Oracle Always Free (2026)
+Overview
+
+The FDG Discord Bot was migrated from a locally hosted Windows PC environment to an Oracle Cloud Infrastructure (OCI) Always Free Ubuntu VM.
+
+Goal:
+
+Remove dependency on Jordan’s PC
+
+Ensure 24/7 uptime
+
+Auto-restart on crash
+
+Auto-start on reboot
+
+Maintain compatibility with Google Apps Script backend + Google Sheets
+
+Final Architecture
+
+Discord → Oracle VM (Node.js bot) → Apps Script Webhook → Google Sheets
+
+Components:
+
+Compute: Oracle Cloud VM
+
+OS: Ubuntu 24.04
+
+Shape: VM.Standard.E2.1.Micro (Always Free)
+
+Node Version: v24.x (LTS)
+
+Process Manager: systemd service
+
+Repository: GitHub (private)
+
+Secrets: .env stored only on server (not in repo)
+
+Deployment Steps Completed
+1️⃣ Oracle VM Created
+
+Public IPv4 enabled
+
+SSH key authentication configured
+
+Public subnet created
+
+Security list allows port 22 (SSH)
+
+2️⃣ SSH Access Configured
+
+Private key moved to:
+
+C:\Users\jandk\.ssh\oracle.key
+
+
+Windows ACL ownership corrected
+
+Connected via:
+
+ssh -i C:\Users\jandk\.ssh\oracle.key ubuntu@<PUBLIC_IP>
+
+3️⃣ Server Setup
+
+System updated:
+
+sudo apt update && sudo apt -y upgrade
+sudo apt -y install git curl build-essential
+
+
+Node installed via NodeSource:
+
+curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+sudo apt -y install nodejs
+
+
+Verified:
+
+node -v
+npm -v
+
+4️⃣ Bot Installed
+
+Cloned repo:
+
+git clone https://github.com/jandkbailey21/FDG-Discord-Bot.git
+cd FDG-Discord-Bot
+npm ci
+
+
+Created .env manually via nano:
+
+nano .env
+
+
+Deployed slash commands:
+
+node deploy-commands.js
+
+
+Tested bot:
+
+node index.js
+
+
+Confirmed:
+
+Logged in successfully
+
+PlayerPool refreshed
+
+5️⃣ systemd Service Created (Always-On Bot)
+
+Service file created at:
+
+/etc/systemd/system/fdg-bot.service
+
+
+Service configuration:
+
+[Unit]
+Description=FDG Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/FDG-Discord-Bot
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /home/ubuntu/FDG-Discord-Bot/index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
+
+Activated with:
+
+sudo systemctl daemon-reload
+sudo systemctl enable fdg-bot
+sudo systemctl start fdg-bot
+
+
+Confirmed:
+
+sudo systemctl status fdg-bot
+
+
+Status:
+
+Active: active (running)
+
+Final State
+
+✅ Bot runs 24/7
+✅ Survives server reboot
+✅ Auto-restarts on crash
+✅ No local PC required
+✅ Repo returned to Private
+✅ .env remains server-only
+
+🔧 Useful Maintenance Commands
+Check Bot Status
+sudo systemctl status fdg-bot
+
+Restart Bot
+sudo systemctl restart fdg-bot
+
+Stop Bot
+sudo systemctl stop fdg-bot
+
+View Live Logs
+journalctl -u fdg-bot -f
+
+Reload Service After Editing
+sudo systemctl daemon-reload
+sudo systemctl restart fdg-bot
+
+Update Bot Code From GitHub
+cd ~/FDG-Discord-Bot
+git pull
+npm ci
+sudo systemctl restart fdg-bot
+
+Reboot Server (Bot Auto-Starts)
+sudo reboot
+
+Future Upgrade Options
+
+Add automatic git pull via cron or CI/CD
+
+Add firewall tightening (restrict SSH by IP)
+
+Add monitoring alerts
+
+Migrate to ARM shape if capacity becomes available
+
+Add PM2 if more complex runtime management is needed
+
+Migration Completed: February 18, 2026
